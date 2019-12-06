@@ -1,0 +1,30 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use Socket;
+
+socket(SERVER, PF_INET, SOCK_STREAM, getprotobyname("tcp")) or die("socket");
+setsockopt(SERVER, SOL_SOCKET, SO_REUSEADDR, 1);
+
+
+my $addr = sockaddr_in("3000", INADDR_ANY);
+bind(SERVER, $addr) or die("bind: $!");
+listen(SERVER, SOMAXCONN) or die("listen: $!");
+
+print "En attente de client\n";
+accept(CLIENT, SERVER) or die("accept");
+
+print "Client connecté\n";
+select(CLIENT);
+$| = 1;
+select(STDOUT);
+while (<CLIENT>) {
+    chomp;
+    print "Client: $_\n";
+    print CLIENT "Serveur: $_\n";
+}
+close(CLIENT);
+close(SERVER);
+print "Fini\n";
