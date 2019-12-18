@@ -2,9 +2,40 @@
 
 use strict;
 use warnings;
-
 use Socket;
 
+sub lireFichierConf{
+    #Ouverture et lecture du fichier comanche.conf
+    open my($file),'<', './comanche.conf' or die "Impossible d'ouvrir le fichier : $!\n";
+    while( my $line = <$file> ) {
+	
+	chomp($line); #supprime le \n de la ligne
+	# my $sub_char = $line; #On affecte la ligne dans la variable
+	# $sub_char =~ s/^\s+//; #On retire tout les espaces vides
+	# $sub_char = substr($line, 0, 1); #Récupére le premier caractére de la ligne
+
+	#On vérifie l'inégalité
+	#if ($sub_char ne "#" and $sub_char ne "") {
+	   
+	verifierMotConf($line);
+	#}
+    }
+}
+
+sub verifierMotConf{
+    my ($line) = @_;
+    $line =~ s/\s*(.*)\s*/\1/;
+
+    print "$line\n";
+    
+    # my @split = split /\s+/, $line;
+    # foreach my $mot (@split){
+    # 	print "--$mot\n";
+    # }
+}
+
+
+lireFichierConf();
 socket(SERVER, PF_INET, SOCK_STREAM, getprotobyname("tcp")) or die("socket");
 setsockopt(SERVER, SOL_SOCKET, SO_REUSEADDR, 1);
 
