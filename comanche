@@ -8,30 +8,70 @@ sub lireFichierConf{
     #Ouverture et lecture du fichier comanche.conf
     open my($file),'<', './comanche.conf' or die "Impossible d'ouvrir le fichier : $!\n";
     while( my $line = <$file> ) {
-	
 	chomp($line); #supprime le \n de la ligne
-	# my $sub_char = $line; #On affecte la ligne dans la variable
-	# $sub_char =~ s/^\s+//; #On retire tout les espaces vides
-	# $sub_char = substr($line, 0, 1); #Récupére le premier caractére de la ligne
-
-	#On vérifie l'inégalité
-	#if ($sub_char ne "#" and $sub_char ne "") {
-	   
 	verifierMotConf($line);
-	#}
     }
+}
+
+sub verifierSet{
+    my @split = @_;
+    my $variable = "$split[1]";
+    if($variable eq "port") {
+	       
+    }elsif($variable eq "error") {
+		
+    }elsif($variable eq "index") {
+
+    }elsif($variable eq "logfile") {
+
+    }elsif($variable eq "clients") {
+
+    }else {
+	die "$variable est une variable non connue !\n";
+    }
+}
+
+sub verifierRoute{
+    my @split = @_;
+    my $regexp1 = "$split[1]";
+    my $to = "$split[2]";
+    my $regexp2 = "$split[3]";
+}
+
+sub verifierExec{
+    my @split = @_;
+    my $regexp1 = "$split[1]";
+    my $from = "$split[2]";
+    my $regexp2 = "$split[3]";
 }
 
 sub verifierMotConf{
     my ($line) = @_;
-    $line =~ s/\s*(.*)\s*/\1/;
-
-    print "$line\n";
-    
-    # my @split = split /\s+/, $line;
-    # foreach my $mot (@split){
-    # 	print "--$mot\n";
-    # }
+    $line =~ s/(?m)^#.*$//;
+    $line =~ s/\s*(.*)\s*/$1/;
+    $line =~ s/(.*)#(.*)/$1/;
+   
+    if($line ne ""){
+	
+	my @split = split /\s+/, $line;
+	my $ordre = "$split[0]";
+	if($ordre eq "set") {
+	    
+	    verifierSet("@split");
+	    
+	}elsif($ordre eq "route") {
+	    
+	    verifierRoute("@split");
+	    
+	}elsif($ordre eq "exec") {
+	    
+	    verifierExec("@split");   
+ 
+	}else {
+	    
+	  die "$ordre est un ordre non connu !\n";
+	}
+    }
 }
 
 
