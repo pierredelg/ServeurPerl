@@ -15,7 +15,12 @@ sub lireFichierConf{
 
 sub verifierSet{
     my @split = @_;
-    my $variable = "$split[1]";
+    my $taille = @_;
+    my @tab = split(/\s+/, "$line");
+    print " taille $taille\n";
+    print " verifierSet @split \n";
+    my $variable = "$ab[1]";
+    print "variable $variable\n";
     if($variable eq "port") {
 	       
     }elsif($variable eq "error") {
@@ -32,45 +37,48 @@ sub verifierSet{
 }
 
 sub verifierRoute{
-    my @split = @_;
+    my @split = "@_";
     my $regexp1 = "$split[1]";
     my $to = "$split[2]";
     my $regexp2 = "$split[3]";
 }
 
 sub verifierExec{
-    my @split = @_;
+    my @split = "@_";
     my $regexp1 = "$split[1]";
     my $from = "$split[2]";
     my $regexp2 = "$split[3]";
 }
 
 sub verifierMotConf{
-    my ($line) = @_;
+    my $line = "@_";
+   
     $line =~ s/(?m)^#.*$//;
     $line =~ s/\s*(.*)\s*/$1/;
     $line =~ s/(.*)#(.*)/$1/;
-   
+    
     if($line ne ""){
-	
-	my @split = split /\s+/, $line;
-	my $ordre = "$split[0]";
-	if($ordre eq "set") {
+	print " line => $line\n";
+    	my @split = split(/\s+/, "$line");
+	print " tableau => @split\n";
+    	my $ordre = "$split[0]";
+    	print "ordre : $ordre\n";
+    	if($ordre eq "set") {
+	    print "on est ici dans set\n";
+    	    verifierSet("@split");
 	    
-	    verifierSet("@split");
+    	}elsif($ordre eq "route") {
 	    
-	}elsif($ordre eq "route") {
+    	    verifierRoute("@split");
 	    
-	    verifierRoute("@split");
+    	}elsif($ordre eq "exec") {
 	    
-	}elsif($ordre eq "exec") {
-	    
-	    verifierExec("@split");   
+    	    verifierExec("@split");   
  
-	}else {
+    	}else {
 	    
-	  die "$ordre est un ordre non connu !\n";
-	}
+    	  die "$ordre est un ordre non connu !\n";
+    	}
     }
 }
 
