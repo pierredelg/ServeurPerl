@@ -4,23 +4,56 @@ use strict;
 use warnings;
 use Socket;
 
+##### VARIABLES DE FONCTIONNEMENT #####
+
+#port de connexion du Serveur
+my $port = 8080;
+
+#Chemin vers un fichier HTML envoyé en cas d'erreur trouvée
+my $cheminError = "/tmp/web/s/error.html";
+
+#Nom de base du fichier quand la ressource demandée est un répertoire
+#et qu'il existe bien un fichier dans ce répertoire
+my $index = "index.html";
+
+#Chemin vers le fichier contenant les logs
+my $logfile = "/tmp/web/comanche.log";
+
+#Nombre maximal de requetes à traiter en même temps
+my $clients = 10;
+
+
+#méthode qui lit le fichier conf
 sub lireFichierConf{
+    
     #Ouverture et lecture du fichier comanche.conf
     open my($file),'<', './comanche.conf' or die "Impossible d'ouvrir le fichier : $!\n";
+
+    #On lit chaque ligne du fichier
     while( my $line = <$file> ) {
-	chomp($line); #supprime le \n de la ligne
-	verifierMotConf($line);
+
+        #On supprime le \n de la ligne
+    	chomp($line);
+
+        #On vérifie le contenu de chaque lignes
+    	verifierLigneConf($line);
     }
 }
 
+#méthode qui verifie les lignes de configuration 
+#commencant par set
 sub verifierSet{
-    my @split = @_;
-    my $taille = @_;
+    #On récupere la ligne passé en parametre
+    my $line = "@_";
+    
+    #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
     my @tab = split(/\s+/, "$line");
-    print " taille $taille\n";
-    print " verifierSet @split \n";
-    my $variable = "$ab[1]";
-    print "variable $variable\n";
+
+    #On récupere le deuxieme élément du tableau
+    #correspondant à la variable
+    my $variable = "$tab[1]";
+
+    #On vérifie la nature de la variable
     if($variable eq "port") {
 	       
     }elsif($variable eq "error") {
@@ -32,51 +65,90 @@ sub verifierSet{
     }elsif($variable eq "clients") {
 
     }else {
-	die "$variable est une variable non connue !\n";
+        #Si la variable est inconnue on indique l'erreur
+	   die "$variable est une variable non connue !\n";
     }
 }
 
+#méthode qui verifie les lignes de configuration 
+#commencant par route
 sub verifierRoute{
-    my @split = "@_";
-    my $regexp1 = "$split[1]";
-    my $to = "$split[2]";
-    my $regexp2 = "$split[3]";
+
+    #On récupere la ligne passé en parametre
+    my $line = "@_";
+
+    #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
+    my @splitLine = split(/\s+/, "$line");
+
+    my $regexp1 = "$splitLine[1]";
+
+    my $to = "$splitLine[2]";
+
+    my $regexp2 = "$splitLine[3]";
 }
 
+#méthode qui verifie les lignes de configuration
+#commencant par exec
 sub verifierExec{
-    my @split = "@_";
-    my $regexp1 = "$split[1]";
-    my $from = "$split[2]";
-    my $regexp2 = "$split[3]";
+    #On récupere la ligne passé en parametre
+    my $line = "@_";
+
+    #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
+    my @splitLine = split(/\s+/, "$line");
+
+    my $regexp1 = "$splitLine[1]";
+
+    my $from = "$splitLine[2]";
+
+    my $regexp2 = "$splitLine[3]";
 }
 
-sub verifierMotConf{
+#méthode qui verifie chaque ligne du fichier de configuration
+sub verifierLigneConf{
+
+    #On récupere la ligne envoyée en parametre
     my $line = "@_";
    
+    #On remplace les lignes commençant par un # par une chaine vide
     $line =~ s/(?m)^#.*$//;
+
+    #On conserve ce qui se trouve entre les caractères d'espacements
     $line =~ s/\s*(.*)\s*/$1/;
+
+    #On supprime la partie suivant le # de la ligne
     $line =~ s/(.*)#(.*)/$1/;
     
+    #On vérifie que la ligne n'est pas vide
     if($line ne ""){
-	print " line => $line\n";
-    	my @split = split(/\s+/, "$line");
-	print " tableau => @split\n";
-    	my $ordre = "$split[0]";
+
+	    print " line => $line\n";
+
+        #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
+    	my @splitLine = split(/\s+/, "$line");
+	    print " tableau => @splitLine\n";
+
+        #On récupere le premier mot du tableau
+    	my $ordre = "$splitLine[0]";
     	print "ordre : $ordre\n";
+
+        #On vérifie la nature de l'ordre
     	if($ordre eq "set") {
-	    print "on est ici dans set\n";
-    	    verifierSet("@split");
+
+            #On vérifie le contenu de la ligne commençant par set
+    	    verifierSet("$line");
 	    
     	}elsif($ordre eq "route") {
-	    
-    	    verifierRoute("@split");
+
+	        #On vérifie le contenu de la ligne commençant par route
+    	    verifierRoute("$line");
 	    
     	}elsif($ordre eq "exec") {
-	    
-    	    verifierExec("@split");   
+
+	        #On vérifie le contenu de la ligne commençant par exec
+    	    verifierExec("$line");   
  
     	}else {
-	    
+	       #Si l'ordre n'est pas connu on affiche une erreur
     	  die "$ordre est un ordre non connu !\n";
     	}
     }
