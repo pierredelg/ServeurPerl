@@ -4,24 +4,39 @@ use strict;
 use warnings;
 use Socket;
 
-##### VARIABLES DE FONCTIONNEMENT #####
+
+#----------------------------------------------------------------------------#
+##### VARIABLES DE FONCTIONNEMENT GLOBALE #####
 
 #port de connexion du Serveur
-my $port = 8080;
+my $port = 8800;
 
 #Chemin vers un fichier HTML envoyé en cas d'erreur trouvée
-my $cheminError = "/tmp/web/s/error.html";
+my $cheminError = "./error.html";
 
 #Nom de base du fichier quand la ressource demandée est un répertoire
 #et qu'il existe bien un fichier dans ce répertoire
 my $index = "index.html";
 
 #Chemin vers le fichier contenant les logs
-my $logfile = "/tmp/web/comanche.log";
+my $logfile = "./comanche.log";
 
 #Nombre maximal de requetes à traiter en même temps
 my $clients = 10;
 
+#----------------------------------------------------------------------------#
+##### PARAMETRAGE DES ROUTES #####
+
+#On construit une table de hachage qui va contenir la regexp1 et la regexp2
+my %hashRoutes;
+
+#----------------------------------------------------------------------------#
+##### PARAMETRAGE DES EXEC #####
+
+#On construit une table de hachage qui va contenir la regexp1 et la regexp2
+my %hashExec;
+
+#----------------------------------------------------------------------------#
 
 #méthode qui lit le fichier conf
 sub lireFichierConf{
@@ -43,6 +58,7 @@ sub lireFichierConf{
 #méthode qui verifie les lignes de configuration 
 #commencant par set
 sub verifierSet{
+
     #On récupere la ligne passé en parametre
     my $line = "@_";
     
@@ -55,14 +71,52 @@ sub verifierSet{
 
     #On vérifie la nature de la variable
     if($variable eq "port") {
-	       
+
+        #On récupere le numero du port 
+        my $newPort = "$tab[2]";
+
+        #On vérifie que le nouveau numero de port est bien un entier
+        if($newPort =~ m/^-?\d+,?\d*$/){
+
+            #On affecte le nouveau numéro de port
+            $port = $newPort;
+        }else{
+
+            #Si le nouveau numéro de port n'est pas un entier, on envoie une erreur
+            die "$newPort n'est pas un entier. Impossible de configurer le port."
+        }
+
     }elsif($variable eq "error") {
+
+        #On récupere le chemin de la page d'erreur 
+        my $newError = "$tab[2]";
+
+        #On affecte le nouveau chemin de la page d'erreur
+        $cheminError = $newError;
 		
     }elsif($variable eq "index") {
 
+        #On récupere le nom de base du fichier 
+        my $newIndex = "$tab[2]";
+
+        #On affecte le nouveau nom de base du fichier
+        $index = $newIndex;
+
     }elsif($variable eq "logfile") {
 
+        #On récupere le chemin vers le fichier contenant les logs 
+        my $newLogFile = "$tab[2]";
+
+        #On affecte le nouveau chemin vers le fichier contenant les logs
+        $logfile = $newLogFile;
+
     }elsif($variable eq "clients") {
+
+        #On récupere le nombre maximal de requetes à traiter en même temps
+        my $newClients = "$tab[2]";
+
+        #On affecte le nouveau Nombre maximal de requetes à traiter en même temps
+        $clients = $newClients;
 
     }else {
         #Si la variable est inconnue on indique l'erreur
@@ -80,11 +134,23 @@ sub verifierRoute{
     #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
     my @splitLine = split(/\s+/, "$line");
 
+    #On récupere la premiere regex
     my $regexp1 = "$splitLine[1]";
 
+    #On récupere le mot de liaison
     my $to = "$splitLine[2]";
 
+    #On récupere la deuxieme regex
     my $regexp2 = "$splitLine[3]";
+
+    #On vérifie que le mot de liaison est bien to
+    if($to eq "to"){
+
+        #On ajoute la regex1 en clé et la regex2 en valeur dans la table de hachage
+        $hashRoutes{"$regexp1"}="$regexp2";
+    }else{
+        die "$to n'est pas valide !\n";
+    }
 }
 
 #méthode qui verifie les lignes de configuration
@@ -96,11 +162,21 @@ sub verifierExec{
     #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
     my @splitLine = split(/\s+/, "$line");
 
+    #On récupere la premiere regex
     my $regexp1 = "$splitLine[1]";
 
+    #On récupere le mot de liaison
     my $from = "$splitLine[2]";
 
+    #On récupere la deuxieme regex
     my $regexp2 = "$splitLine[3]";
+
+    if($from eq "from"){
+        #On ajoute la regex1 en clé et la regex2 en valeur dans la table de hachage
+        $hashExec{"$regexp1"}="$regexp2";
+    }else{
+        die "$from n'est pas valide !\n";
+    }
 }
 
 #méthode qui verifie chaque ligne du fichier de configuration
@@ -121,15 +197,11 @@ sub verifierLigneConf{
     #On vérifie que la ligne n'est pas vide
     if($line ne ""){
 
-	    print " line => $line\n";
-
         #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
     	my @splitLine = split(/\s+/, "$line");
-	    print " tableau => @splitLine\n";
 
         #On récupere le premier mot du tableau
     	my $ordre = "$splitLine[0]";
-    	print "ordre : $ordre\n";
 
         #On vérifie la nature de l'ordre
     	if($ordre eq "set") {
@@ -148,34 +220,145 @@ sub verifierLigneConf{
     	    verifierExec("$line");   
  
     	}else {
+
 	       #Si l'ordre n'est pas connu on affiche une erreur
     	  die "$ordre est un ordre non connu !\n";
     	}
     }
 }
 
+#méthode permettant de construire l'entête de la réponse
+sub head_reponse{
 
+    #On récupere les trois parametres
+    #status
+    #type mime
+    #longueur du body de la réponse
+    my $args = "@_";
+    my @splitLine = split(/\s+/, "$args");
+
+    my $statut = "$splitLine[0]";
+    my $type = "$splitLine[1]";
+    my $longueur = "$splitLine[2]";
+
+    
+    #On envoie chaque ligne de l'entête
+    print CLIENT "HTTP/1.1 $statut\r\n";
+    print CLIENT "Content-type: $type ; charset=UTF-8\r\n";
+    print CLIENT "Content-length: $longueur\r\n";
+    print CLIENT "\r\n";
+}
+
+
+#On lit , vérifie et applique les données du fichier de configuration
+#Le serveur s'arrete en erreur si une erreur intervient
 lireFichierConf();
+
+#On crée une socket serveur
+#SERVER => handle de la socket
+#PF_INET => protocole ipv4
+#SOCK_STREAM => type de communication (ici pour TCP)
+#getprotobyname("tcp") => convertit le nom du protocole en numéro reconnaissable pour la fonction
 socket(SERVER, PF_INET, SOCK_STREAM, getprotobyname("tcp")) or die("socket");
+
+
+#On configure une option de la socket
+#SERVER => handle de la socket
+#SOL_SOCKET => niveau de configuration de l'option
+#SO_REUSEADDR => permet de réutiliser l'addresse imédiatement après l'avoir libérée
+#1 => active l'option SO_REUSEADDR
 setsockopt(SERVER, SOL_SOCKET, SO_REUSEADDR, 1);
 
 
-my $addr = sockaddr_in("3000", INADDR_ANY);
+#On crée une addresse sur le port demandé 
+#avec l'option INADDR_ANY pour écouter sur toutes les interfaces réseaux
+my $addr = sockaddr_in("$port", INADDR_ANY);
+print "Démarrage du serveur Comanche sur le port $port...\n";
+
+
+#On attache la socket d'ecoute à l'addresse
 bind(SERVER, $addr) or die("bind: $!");
+
+#On écoute sur la socket SERVER
+#SOMAXCONN => le nombre de connexions qui peuvent être en attente (ici la max possible)
 listen(SERVER, SOMAXCONN) or die("listen: $!");
 
-print "En attente de client\n";
-accept(CLIENT, SERVER) or die("accept");
+#établie une connexion entre la nouvelle socket CLIENT
+#et la socket SERVER
+print "En attente de client...\n";
 
-print "Client connecté\n";
-select(CLIENT);
-$| = 1;
-select(STDOUT);
-while (<CLIENT>) {
-    chomp;
-    print "Client: $_\n";
-    print CLIENT "Serveur: $_\n";
+
+while(accept(CLIENT, SERVER)){
+
+    print "Connexion du Client\n";
+    #crée un handle afin de lire ce que le client envoie
+    select(CLIENT);
+
+    # On active le mode d'écriture systématique des tampons (autoflush) sur le handle de la sortie standard 
+    $| = 1;
+
+    #Crée un handle afin d'ecrire sur la sortie standard
+    select(STDOUT);
+
+    my $lineNumber = 1;
+    #On lit ce qui passe par le handle CLIENT
+    while (<CLIENT>) {
+
+        #On supprime le \n de fin
+        chomp;
+
+        #Si c'est la premiere ligne reçue on vérifie que la méthode est bien GET / HTTP/1.1
+        if($lineNumber == 1){
+
+            #On récupere la premiere ligne
+            my $line = "$_";
+
+            #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
+            my @splitLine = split(/\s+/, "$line");
+
+            #On récupere la méthode
+            my $methode = "$splitLine[0]";
+
+            #On récupere la ressource
+            my $ressource = "$splitLine[1]";
+
+            #On récupere la version
+            my $version = "$splitLine[2]";
+
+            #On vérifie que la méthode est bien GET sinon on envoie une erreur
+            if($methode ne "GET"){
+                my $erreur = "405 Method Not Allowed";
+                my $longueur = length("$erreur");
+                head_reponse(405,'text/plain',$longueur);
+                print CLIENT "$erreur";
+            }
+
+            #On vérifie que la version est bien 1.1 sinon on envoie une erreur
+            if($version ne "HTTP/1.1"){
+                my $erreur = "505 HTTP Version Not Supported";
+                my $longueur = length("$erreur");
+                head_reponse(505,'text/plain',$longueur);
+                print CLIENT "$erreur";
+            }
+        }
+
+        $lineNumber++;
+        #Le contenu de la ligne lue est dans la variable $_ et écrit sur la sortie standard
+        print "Client: $_\n";
+
+        #on écrit sur le client le contenu de la ligne qu'il nous envoie
+        #print CLIENT "Serveur: $_\n";
+    }
+    #print CLIENT "Serveur: $_\n";
+
+
+    #On ferme la socket CLIENT
+    close(CLIENT);
+    print "Client déconnecté\n";
+
 }
-close(CLIENT);
+
+#On ferme la socket SERVER
 close(SERVER);
-print "Fini\n";
+
+print "Fermeture du serveur Comanche\n";
