@@ -269,7 +269,7 @@ sub envoyerPageErreur {
     my $taille = -s "$error";
 
     #On envoie l'entete de la réponse
-    head_reponse(404,'text/html',$taille);
+    head_reponse(404,'text/html',"$taille");
 
     #On envoie la page d'erreur
     while (<ERROR>) {
@@ -298,7 +298,7 @@ sub envoyerFichier {
     my $taille = -s "$fichier";
 
     #On envoie l'entete de la réponse
-    head_reponse(200,$type,$taille);
+    head_reponse(200,"$type","$taille");
 
     #On envoie le fichier
     while (<ENVOI>) {
@@ -345,7 +345,7 @@ sub listeHTMLDossier {
     opendir(REP, $dir);
 
     #On parcourt le dossier
-    for $fichier (sort readdir(REP)) {
+    for my $fichier (sort readdir(REP)) {
 
         my $cheminFichier = "$dir\/$fichier";
 
@@ -356,16 +356,15 @@ sub listeHTMLDossier {
     #On affiche la fin du fichier html
     $reponse .= "       </ul>
                     </body>
-                </html>";
+                </html>
+                ";
 
     #On envoi l'entête de la réponse
     head_reponse(200,"text/html",length("$reponse"));
 
     #On affiche la réponse
-    print (CLIENT,"$reponse");
+    print CLIENT "$reponse";
 
-    #On écrit le log 
-    ecrireLog("get-s","200 OK");
 }
 
 #méthode permettant d'arreter le serveur
@@ -383,7 +382,9 @@ sub stop {
 
     #On récupere le pid enregistré
     my $pid = <READ>;
+    chomp($pid);
     my $portPid = <READ>;
+    chomp($portPid);
     
     #On ferme le fichier
     close(READ);
@@ -395,12 +396,17 @@ sub stop {
     unlink("$pidfile");
 
     #On écrit le log de l'arret du serveur      
-    ecrireLog("stop", "local", "$portPid", "", "");
+    ecrireLog(time(),"stop", "local", "$portPid", "", "");
 
     #On écrit le message dans le terminal
     print "Arret du serveur comanche\n";
 
     exit 0;
+}
+
+#méthode permettant d'envoyer le status du serveur
+sub status{
+
 }
 
 #méthode permettant de demarrer le serveur
@@ -418,8 +424,8 @@ sub start {
         open (PID, ">", "$pidfile");
 
         #On écrit le pid dans le fichier
-        print PID "$pid";
-        print PID "$port";
+        print PID "$pid\n";
+        print PID "$port\n";
 
         #On ferme le fichier
         close PID;
@@ -454,51 +460,52 @@ sub start {
         #On crée une addresse sur le port demandé 
         #avec l'option INADDR_ANY pour écouter sur toutes les interfaces réseaux
         my $addr = sockaddr_in("$port", INADDR_ANY);
-        print "Démarrage du serveur Comanche sur le port $port...\n";
+        print "Démarrage du serveur comanche sur le port $port...\n";
 
 
         #On attache la socket d'ecoute à l'addresse
-        bind(SERVER, $addr) or die("bind: $!");
+        bind(SERVER, "$addr") or die("bind: $!");
 
         #On écoute sur la socket SERVER
         #SOMAXCONN => le nombre de connexions qui peuvent être en attente (ici la max possible)
         listen(SERVER, SOMAXCONN) or die("listen: $!");
 
-        #établie une connexion entre la nouvelle socket CLIENT
-        #et la socket SERVER
-        print "En attente de client...\n";
-
         #On ajoute un log de demarrage du serveur
-        ecrireLog(time(),"start","local",$port,"","");
+        ecrireLog(time(),"start","local","$port","","");
 
 
         while(accept(CLIENT, SERVER)){
 
-            print "Connexion du Client\n";
-            #crée un handle afin de lire ce que le client envoie
+            #On crée un handle afin de lire ce que le client envoie
             select(CLIENT);
+
+            my $client = getpeername(CLIENT);
+
+            my ($portClient,$iaddrClient) = sockaddr_in($client);
+
+            my $ipClient = inet_ntoa($iaddrClient);
 
             # On active le mode d'écriture systématique des tampons (autoflush) sur le handle de la sortie standard 
             $| = 1;
 
-            #Crée un handle afin d'ecrire sur la sortie standard
+            #On crée un handle afin d'ecrire sur la sortie standard
             select(STDOUT);
 
             my $lineNumber = 1;
             #On lit ce qui passe par le handle CLIENT
             while (<CLIENT>) {
 
+                #On récupere la premiere ligne
+                my $line = "$_";
+
                 #On supprime le \n de fin
-                chomp;
+                chomp($line);
 
                 #Si c'est la premiere ligne reçue on vérifie que la méthode est bien GET / HTTP/1.1
                 if($lineNumber == 1){
 
                     #On crée un booleen afin de vérifier que la ressource demandée est trouvée
                     my $ressourceOk = 0;
-
-                    #On récupere la premiere ligne
-                    my $line = "$_";
 
                     #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
                     my @splitLine = split(/\s+/, "$line");
@@ -522,7 +529,9 @@ sub start {
                         my $longueur = length("$erreur");
 
                         #On envoie l'entete de la réponse
-                        head_reponse(405,'text/plain',$longueur);
+                        head_reponse(405,'text/plain',"$longueur");
+
+                        ecrireLog(time(),"get-s","$ipClient","$line","",405);
 
                         #On envoie l'erreur
                         print CLIENT "$erreur";
@@ -538,7 +547,9 @@ sub start {
                         my $longueur = length("$erreur");
 
                         #On envoie l'entete de la réponse
-                        head_reponse(505,'text/plain',$longueur);
+                        head_reponse(505,'text/plain',"$longueur");
+
+                        ecrireLog(time(),"get-s","$ipClient","$line","",505);
 
                         #On envoie l'erreur
                         print CLIENT "$erreur";
@@ -546,7 +557,6 @@ sub start {
 
                     #On parcourt toutes les  projections de routes
                     foreach my $regexp1Routes (keys(%hashRoutes)) {
-                       print "Clef=$regexp1Routes Valeur=$hashRoutes{$regexp1Routes}\n";
 
                        #On vérifie si la ressource matche avec une regex
                        if($ressource =~ $regexp1Routes){
@@ -563,34 +573,41 @@ sub start {
                             #on remplace le \1 du chemin par la ressource
                             $chemin = substr("$chemin",0,-2);
 
-                            my $cheminRessource = $chemin.$ressource;
+                            my $cheminRessource = "$chemin"."$ressource";
 
-                            #print "s/$regexp1Routes/$hashRoutes{$regexp1Routes}/\n";
+                            print "chemin ressource = $cheminRessource\n";
 
                             #On récupere l'extension
                             my $extension = substr("$cheminRessource",-4);
 
                             #Si la ressource est un dossier
                             if(-d $cheminRessource){
-                                my $cheminIndex = $cheminRessource."/".$index;
+                                my $cheminIndex = "$cheminRessource"."/"."$index";
                                 if(-e $cheminIndex){
                                     envoyerFichier("$cheminIndex","text/html");
-                                }else{
+                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
 
+                                }else{
+                                    listeHTMLDossier("$cheminRessource");
+                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
                                 }
+                                last;
                             }
 
                             #On vérifie l'extension
                             if($extension eq "html"){
                                 envoyerFichier("$cheminRessource","text/html");
+                                ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
                                 last;
                             }
                             if($extension eq ".png"){
                                 envoyerFichier("$cheminRessource","image/png");
+                                ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
                                 last;
                             }
                             if($extension eq ".txt"){
                                 envoyerFichier("$cheminRessource","text/plain");
+                                ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
                                 last;
                             }
                             
@@ -603,10 +620,13 @@ sub start {
                             my $longueur = length("$erreur");
 
                             #On envoie l'entete de la réponse
-                            head_reponse(415,'text/plain',$longueur);
+                            head_reponse(415,'text/plain',"$longueur");
 
                             #On envoie l'erreur
                             print CLIENT "$erreur";
+
+                            #On écrit dans le fichier de log
+                            ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",415);
 
                             #On sort de la boucle
                             last;
@@ -615,7 +635,6 @@ sub start {
 
                     #On parcourt toutes les  projections d'exec
                     foreach my $regexp1Exec (keys(%hashExec)) {
-                       print "Clef=$regexp1Exec Valeur=$hashExec{$regexp1Exec}\n";
 
                        #On vérifie si la ressource matche avec la regex
                        if($ressource =~ $regexp1Exec){
@@ -634,23 +653,18 @@ sub start {
                     if(!$ressourceOk){
 
                         envoyerPageErreur();
+
+                        ecrireLog(time(),"get-s","$ipClient","$line","",404);
+
                     }
                 }
 
                 $lineNumber++;
-                #Le contenu de la ligne lue est dans la variable $_ et écrit sur la sortie standard
-                print "Client: $_\n";
 
-                #on écrit sur le client le contenu de la ligne qu'il nous envoie
-                #print CLIENT "Serveur: $_\n";
             }
-            #print CLIENT "Serveur: $_\n";
-
 
             #On ferme la socket CLIENT
             close(CLIENT);
-            print "Client déconnecté\n";
-
         }
 
         #On ferme la socket SERVER
