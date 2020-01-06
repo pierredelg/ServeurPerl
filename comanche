@@ -41,8 +41,23 @@ my %hashExec;
 
 #----------------------------------------------------------------------------#
 
+#Tableau contenant les processus fils
+my @processusFils;
 
 
+#$SIG{CHLD} = sub {
+#
+#    my $pidChild = wait();
+#    my @nouv;
+#
+#    for( my $i = 0; $i < scalar(@processusFils); $i++){
+#         if($processusFils[$i] != $pidChild){
+#            push(@nouv, $processusFils[$i]);
+#         }
+#    }
+#    
+#    @processusFils = @nouv;
+#};
 
 
 #############################   CONFIGURATION   #############################
@@ -430,7 +445,6 @@ sub start {
         #On ferme le fichier
         close PID;
 
-        #On retourne 0
         exit 0;
 
     #fils
@@ -476,254 +490,264 @@ sub start {
 
         while(accept(CLIENT, SERVER)){
 
-            #On crée un handle afin de lire ce que le client envoie
             select(CLIENT);
-
-            my $client = getpeername(CLIENT);
-
-            my ($portClient,$iaddrClient) = sockaddr_in($client);
-
-            my $ipClient = inet_ntoa($iaddrClient);
-
+            
             # On active le mode d'écriture systématique des tampons (autoflush) sur le handle de la sortie standard 
             $| = 1;
 
             #On crée un handle afin d'ecrire sur la sortie standard
             select(STDOUT);
 
-            my $lineNumber = 1;
-            #On lit ce qui passe par le handle CLIENT
-            while (<CLIENT>) {
 
-                #On récupere la premiere ligne
-                my $line = "$_";
+            #On récupere le nom du client
+            my $clientName = getpeername(CLIENT);
 
-                #On supprime le \n de fin
-                chomp($line);
-                #On supprime le \r de fin
-                chop($line);
+            #On recupere le port de connexion et l'addresse du client
+            my ($portClient,$iaddrClient) = sockaddr_in($clientName);
 
-                #Si c'est la premiere ligne reçue on vérifie que la méthode est bien GET / HTTP/1.1
-                if($lineNumber == 1){
+            #On récupere l'addresse ipv4 du client
+            my $ipClient = inet_ntoa($iaddrClient);
 
-                    #On crée un booleen afin de vérifier que la ressource demandée est trouvée
-                    my $ressourceOk = 0;
 
-                    #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
-                    my @splitLine = split(/\s+/, "$line");
 
-                    #On récupere la méthode
-                    my $methode = "$splitLine[0]";
+            #On vérifie que le nombre maximum de requetes simultanée n'est pas dépassé
+            if(scalar @processusFils >= $clients){
 
-                    #On récupere la ressource
-                    my $ressource = "$splitLine[1]";
+                #On crée l'erreur
+                my $erreur = "503 Service Unavailable";
 
-                    #On récupere la version
-                    my $version = "$splitLine[2]";
+                #On calcule la longueur de la chaine
+                my $longueur = length("$erreur");
 
-                    #On vérifie que la méthode est bien GET sinon on envoie une erreur
-                    if($methode ne "GET"){
+                #On envoie l'entete de la réponse
+                head_reponse(503,'text/plain',"$longueur");
 
-                        #On crée l'erreur
-                        my $erreur = "405 Method Not Allowed";
+                ecrireLog(time(),"get-s","$ipClient","","",503);
 
-                        #On calcule la longueur de la chaine
-                        my $longueur = length("$erreur");
+                #On envoie l'erreur
+                print CLIENT "$erreur";
 
-                        #On envoie l'entete de la réponse
-                        head_reponse(405,'text/plain',"$longueur");
+            }else{
 
-                        ecrireLog(time(),"get-s","$ipClient","$line","",405);
+                #On crée un processus fils ouvrier afin de traiter la requete
+                my $pidOuvrier = fork();
 
-                        #On envoie l'erreur
-                        print CLIENT "$erreur";
-                    }
+                if($pidOuvrier == 0){
 
-                    #On vérifie que la version est bien 1.1 sinon on envoie une erreur
-                    if($version ne "HTTP/1.1"){
+                    my $lineNumber = 1;
+                    #On lit ce qui passe par le handle CLIENT
+                    while (<CLIENT>) {
 
-                        #On crée l'erreur
-                        my $erreur = "505 HTTP Version Not Supported";
+                        #On récupere la premiere ligne
+                        my $line = "$_";
 
-                        #On calcule la longueur de la chaine
-                        my $longueur = length("$erreur");
+                        #On supprime le \n de fin
+                        chomp($line);
+                        #On supprime le \r de fin
+                        chop($line);
 
-                        #On envoie l'entete de la réponse
-                        head_reponse(505,'text/plain',"$longueur");
+                        #Si c'est la premiere ligne reçue on vérifie que la méthode est bien GET / HTTP/1.1
+                        if($lineNumber == 1){
 
-                        ecrireLog(time(),"get-s","$ipClient","$line","",505);
+                            #On crée un booleen afin de vérifier que la ressource demandée est trouvée
+                            my $ressourceOk = 0;
 
-                        #On envoie l'erreur
-                        print CLIENT "$erreur";
-                    }
+                            #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
+                            my @splitLine = split(/\s+/, "$line");
 
-                    #On parcourt toutes les  projections de routes
-                    foreach my $regexp1Routes (keys(%hashRoutes)) {
+                            #On récupere la méthode
+                            my $methode = "$splitLine[0]";
 
-                       #On vérifie si la ressource matche avec une regex
-                       if($ressource =~ $regexp1Routes){
+                            #On récupere la ressource
+                            my $ressource = "$splitLine[1]";
 
-                            #On passe le boleen à vrai
-                            $ressourceOk = 1;
+                            #On récupere la version
+                            my $version = "$splitLine[2]";
 
-                            #On récupere le chemin correspondant
-                            my $chemin = "$hashRoutes{$regexp1Routes}";
-                            
-                            #On retire le premier / de la ressource
-                            $ressource = substr("$ressource",1);
-
-                            #on remplace le \1 du chemin par la ressource
-                            $chemin = substr("$chemin",0,-2);
-
-                            #On construit la projection
-                            my $cheminRessource = "$chemin"."$ressource";
-
-                            print "chemin ressource = $cheminRessource\n";
-
-                            #On récupere l'extension
-                            my $extension = substr("$cheminRessource",-4);
-
-                            #Si on essaye d'acceder au dossier parent
-                            #On interdit l'accès
-                            if($ressource eq "../"){
+                            #On vérifie que la méthode est bien GET sinon on envoie une erreur
+                            if($methode ne "GET"){
 
                                 #On crée l'erreur
-                                my $erreur = "403 Forbidden";
+                                my $erreur = "405 Method Not Allowed";
 
                                 #On calcule la longueur de la chaine
                                 my $longueur = length("$erreur");
 
                                 #On envoie l'entete de la réponse
-                                head_reponse(403,'text/plain',"$longueur");
+                                head_reponse(405,'text/plain',"$longueur");
+
+                                ecrireLog(time(),"get-s","$ipClient","$line","",405);
 
                                 #On envoie l'erreur
                                 print CLIENT "$erreur";
-
-                                #On écrit dans le fichier de log
-                                ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",403);
-
-                                #On sort de la boucle
-                                last;
                             }
 
-                            #Si la ressource est un dossier
-                            if(-d $cheminRessource){
-                                my $cheminIndex = "$cheminRessource"."/"."$index";
-                                if(-e $cheminIndex){
-                                    envoyerFichier("$cheminIndex","text/html");
-                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                            #On vérifie que la version est bien 1.1 sinon on envoie une erreur
+                            if($version ne "HTTP/1.1"){
 
-                                }else{
-                                    listeHTMLDossier("$cheminRessource");
-                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
-                                }
-                                last;
+                                #On crée l'erreur
+                                my $erreur = "505 HTTP Version Not Supported";
+
+                                #On calcule la longueur de la chaine
+                                my $longueur = length("$erreur");
+
+                                #On envoie l'entete de la réponse
+                                head_reponse(505,'text/plain',"$longueur");
+
+                                ecrireLog(time(),"get-s","$ipClient","$line","",505);
+
+                                #On envoie l'erreur
+                                print CLIENT "$erreur";
                             }
 
-                            #On vérifie l'extension
-                            if($extension eq "html"){
+                            #On parcourt toutes les  projections de routes
+                            foreach my $regexp1Routes (keys(%hashRoutes)) {
 
-                                #On vérifie que la ressource demandée existe
-                                if(-e $cheminRessource){
+                               #On vérifie si la ressource matche avec une regex
+                               if($ressource =~ $regexp1Routes){
 
-                                    envoyerFichier("$cheminRessource","text/html");
+                                    #On passe le boleen à vrai
+                                    $ressourceOk = 1;
 
-                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
-                                }else{
+                                    #On récupere le chemin correspondant
+                                    my $chemin = "$hashRoutes{$regexp1Routes}";
                                     
-                                    envoyerPageErreur();
+                                    #On retire le premier / de la ressource
+                                    $ressource = substr("$ressource",1);
 
-                                    ecrireLog(time(),"get-s","$ipClient","$line","",404);
-                                }
-                                last;
-                            }
-                            if($extension eq ".png"){
+                                    #on remplace le \1 du chemin par la ressource
+                                    $chemin = substr("$chemin",0,-2);
 
-                                #On vérifie que la ressource demandée existe
-                                if(-e $cheminRessource){
+                                    #On construit la projection
+                                    my $cheminRessource = "$chemin"."$ressource";
 
-                                    envoyerFichier("$cheminRessource","image/png");
+                                    #On récupere l'extension
+                                    my $extension = substr("$cheminRessource",-4);
 
-                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                                    #Si la ressource est un dossier
+                                    if(-d $cheminRessource){
+                                        my $cheminIndex = "$cheminRessource"."/"."$index";
+                                        if(-e $cheminIndex){
+                                            envoyerFichier("$cheminIndex","text/html");
+                                            ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+
+                                        }else{
+                                            listeHTMLDossier("$cheminRessource");
+                                            ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                                        }
+                                        last;
+                                    }
+
+                                    #On vérifie l'extension
+                                    if($extension eq "html"){
+
+                                        #On vérifie que la ressource demandée existe
+                                        if(-e $cheminRessource){
+
+                                            envoyerFichier("$cheminRessource","text/html");
+
+                                            ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                                        }else{
+                                            
+                                            envoyerPageErreur();
+
+                                            ecrireLog(time(),"get-s","$ipClient","$line","",404);
+                                        }
+                                        last;
+                                    }
+                                    if($extension eq ".png"){
+
+                                        #On vérifie que la ressource demandée existe
+                                        if(-e $cheminRessource){
+
+                                            envoyerFichier("$cheminRessource","image/png");
+
+                                            ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                                            
+                                        }else{
+                                            
+                                            envoyerPageErreur();
+
+                                            ecrireLog(time(),"get-s","$ipClient","$line","",404);
+                                        }
+                                        last;
+                                    }
+                                    if($extension eq ".txt"){
+
+                                        #On vérifie que la ressource demandée existe
+                                        if(-e $cheminRessource){
+
+                                            envoyerFichier("$cheminRessource","text/plain");
+
+                                            ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                                            
+                                        }else{
+
+                                            envoyerPageErreur();
+
+                                            ecrireLog(time(),"get-s","$ipClient","$line","",404);
+                                        }
+                                        last;
+                                    }
                                     
-                                }else{
-                                    
-                                    envoyerPageErreur();
+                                    #Si la ressource ne correspond à aucun type on envoi une erreur
 
-                                    ecrireLog(time(),"get-s","$ipClient","$line","",404);
-                                }
-                                last;
+                                    #On crée l'erreur
+                                    my $erreur = "415 Unsupported Media Type";
+
+                                    #On calcule la longueur de la chaine
+                                    my $longueur = length("$erreur");
+
+                                    #On envoie l'entete de la réponse
+                                    head_reponse(415,'text/plain',"$longueur");
+
+                                    #On envoie l'erreur
+                                    print CLIENT "$erreur";
+
+                                    #On écrit dans le fichier de log
+                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",415);
+
+                                    #On sort de la boucle
+                                    last;
+                               }
                             }
-                            if($extension eq ".txt"){
 
-                                #On vérifie que la ressource demandée existe
-                                if(-e $cheminRessource){
+                            #On parcourt toutes les  projections d'exec
+                            foreach my $regexp1Exec (keys(%hashExec)) {
 
-                                    envoyerFichier("$cheminRessource","text/plain");
+                               #On vérifie si la ressource matche avec la regex
+                               if($ressource =~ $regexp1Exec){
 
-                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
-                                    
-                                }else{
+                                    #On passe le boleen à vrai
+                                    $ressourceOk = 1;
 
-                                    envoyerPageErreur();
+                                    #On remplace la ressource par le match de la regex
+                                    $ressource =~ s/$regexp1Exec/$hashExec{$regexp1Exec}/;
 
-                                    ecrireLog(time(),"get-s","$ipClient","$line","",404);
-                                }
-                                last;
+                                    #On sort de la boucle
+                                    last;
+                               }
                             }
-                            
-                            #Si la ressource ne correspond à aucun type on envoi une erreur
 
-                            #On crée l'erreur
-                            my $erreur = "415 Unsupported Media Type";
+                            if(!$ressourceOk){
 
-                            #On calcule la longueur de la chaine
-                            my $longueur = length("$erreur");
+                                envoyerPageErreur();
 
-                            #On envoie l'entete de la réponse
-                            head_reponse(415,'text/plain',"$longueur");
+                                ecrireLog(time(),"get-s","$ipClient","$line","",404);
 
-                            #On envoie l'erreur
-                            print CLIENT "$erreur";
+                            }
+                        }
 
-                            #On écrit dans le fichier de log
-                            ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",415);
+                        $lineNumber++;
 
-                            #On sort de la boucle
-                            last;
-                       }
                     }
+                    #On ferme la socket CLIENT
+                    close(CLIENT);
 
-                    #On parcourt toutes les  projections d'exec
-                    foreach my $regexp1Exec (keys(%hashExec)) {
-
-                       #On vérifie si la ressource matche avec la regex
-                       if($ressource =~ $regexp1Exec){
-
-                            #On passe le boleen à vrai
-                            $ressourceOk = 1;
-
-                            #On remplace la ressource par le match de la regex
-                            $ressource =~ s/$regexp1Exec/$hashExec{$regexp1Exec}/;
-
-                            #On sort de la boucle
-                            last;
-                       }
-                    }
-
-                    if(!$ressourceOk){
-
-                        envoyerPageErreur();
-
-                        ecrireLog(time(),"get-s","$ipClient","$line","",404);
-
-                    }
+                    exit 0;
                 }
-
-                $lineNumber++;
-
+                push(@processusFils, $pidOuvrier);
             }
-
             #On ferme la socket CLIENT
             close(CLIENT);
         }
