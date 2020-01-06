@@ -6,13 +6,13 @@ use Socket;
 
 
 #----------------------------------------------------------------------------#
-##### VARIABLES DE FONCTIONNEMENT GLOBALE #####
+##### VARIABLES DE FONCTIONNEMENT GLOBAL #####
 
 #port de connexion du Serveur
 my $port = 8800;
 
 #Chemin vers un fichier HTML envoyé en cas d'erreur trouvée
-my $cheminError = "./error.html";
+my $error = "./error.html";
 
 #Nom de base du fichier quand la ressource demandée est un répertoire
 #et qu'il existe bien un fichier dans ce répertoire
@@ -23,6 +23,9 @@ my $logfile = "./comanche.log";
 
 #Nombre maximal de requetes à traiter en même temps
 my $clients = 10;
+
+#Fichier de stockage des pids fils
+my $pidfile = "./.pid";
 
 #----------------------------------------------------------------------------#
 ##### PARAMETRAGE DES ROUTES #####
@@ -92,7 +95,7 @@ sub verifierSet{
         my $newError = "$tab[2]";
 
         #On affecte le nouveau chemin de la page d'erreur
-        $cheminError = $newError;
+        $error = $newError;
 		
     }elsif($variable eq "index") {
 
@@ -249,149 +252,383 @@ sub head_reponse{
     print CLIENT "\r\n";
 }
 
+sub envoyerPageErreur {
 
-#On lit , vérifie et applique les données du fichier de configuration
-#Le serveur s'arrete en erreur si une erreur intervient
-lireFichierConf();
+    #On ouvre le handler sur le fichier d'erreur
+    open(ERROR, "$error");
 
-#On crée une socket serveur
-#SERVER => handle de la socket
-#PF_INET => protocole ipv4
-#SOCK_STREAM => type de communication (ici pour TCP)
-#getprotobyname("tcp") => convertit le nom du protocole en numéro reconnaissable pour la fonction
-socket(SERVER, PF_INET, SOCK_STREAM, getprotobyname("tcp")) or die("socket");
+    #On calcule la taille du fichier
+    my $taille = -s "$error";
 
+    #On envoie l'entete de la réponse
+    head_reponse(404,'text/html',$taille);
 
-#On configure une option de la socket
-#SERVER => handle de la socket
-#SOL_SOCKET => niveau de configuration de l'option
-#SO_REUSEADDR => permet de réutiliser l'addresse imédiatement après l'avoir libérée
-#1 => active l'option SO_REUSEADDR
-setsockopt(SERVER, SOL_SOCKET, SO_REUSEADDR, 1);
-
-
-#On crée une addresse sur le port demandé 
-#avec l'option INADDR_ANY pour écouter sur toutes les interfaces réseaux
-my $addr = sockaddr_in("$port", INADDR_ANY);
-print "Démarrage du serveur Comanche sur le port $port...\n";
-
-
-#On attache la socket d'ecoute à l'addresse
-bind(SERVER, $addr) or die("bind: $!");
-
-#On écoute sur la socket SERVER
-#SOMAXCONN => le nombre de connexions qui peuvent être en attente (ici la max possible)
-listen(SERVER, SOMAXCONN) or die("listen: $!");
-
-#établie une connexion entre la nouvelle socket CLIENT
-#et la socket SERVER
-print "En attente de client...\n";
-
-
-while(accept(CLIENT, SERVER)){
-
-    print "Connexion du Client\n";
-    #crée un handle afin de lire ce que le client envoie
-    select(CLIENT);
-
-    # On active le mode d'écriture systématique des tampons (autoflush) sur le handle de la sortie standard 
-    $| = 1;
-
-    #Crée un handle afin d'ecrire sur la sortie standard
-    select(STDOUT);
-
-    my $lineNumber = 1;
-    #On lit ce qui passe par le handle CLIENT
-    while (<CLIENT>) {
-
-        #On supprime le \n de fin
-        chomp;
-
-        #Si c'est la premiere ligne reçue on vérifie que la méthode est bien GET / HTTP/1.1
-        if($lineNumber == 1){
-
-            #On récupere la premiere ligne
-            my $line = "$_";
-
-            #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
-            my @splitLine = split(/\s+/, "$line");
-
-            #On récupere la méthode
-            my $methode = "$splitLine[0]";
-
-            #On récupere la ressource
-            my $ressource = "$splitLine[1]";
-
-            #On récupere la version
-            my $version = "$splitLine[2]";
-
-            #On vérifie que la méthode est bien GET sinon on envoie une erreur
-            if($methode ne "GET"){
-                my $erreur = "405 Method Not Allowed";
-                my $longueur = length("$erreur");
-
-                #On envoie l'entete de la réponse
-                head_reponse(405,'text/plain',$longueur);
-
-                #On envoie l'erreur
-                print CLIENT "$erreur";
-            }
-
-            #On vérifie que la version est bien 1.1 sinon on envoie une erreur
-            if($version ne "HTTP/1.1"){
-                my $erreur = "505 HTTP Version Not Supported";
-                my $longueur = length("$erreur");
-
-                #On envoie l'entete de la réponse
-                head_reponse(505,'text/plain',$longueur);
-
-                #On envoie l'erreur
-                print CLIENT "$erreur";
-            }
-
-            #On parcourt toutes les  projections de routes
-            foreach my $regexp1Routes (keys(%hashRoutes)) {
-               print "Clef=$regexp1Routes Valeur=$hashRoutes{$regexp1Routes}\n";
-
-               #On vérifie si la ressource matche avec la regex
-               if($ressource =~ $regexp1Routes){
-                    #on remplace le \1 de la value par la ressource
-                    $ressource =~ s/$regexp1Routes/$hashRoutes{$regexp1Routes}/;
-                    #print "s/$regexp1Routes/$hashRoutes{$regexp1Routes}/\n";
-                    print "ressource apres regex : $ressource \n";
-
-               }
-            }
-
-            #On parcourt toutes les  projections d'exec
-            foreach my $regexp1Exec (keys(%hashExec)) {
-               print "Clef=$regexp1Exec Valeur=$hashExec{$regexp1Exec}\n";
-
-               #On vérifie si la ressource matche avec la regex
-               if($ressource =~ $regexp1Exec){
-                    #On remplace la ressource par le match de la regex
-                    $ressource =~ s/$regexp1Exec/$hashExec{$regexp1Exec}/;
-               }
-            }
-        }
-
-        $lineNumber++;
-        #Le contenu de la ligne lue est dans la variable $_ et écrit sur la sortie standard
-        print "Client: $_\n";
-
-        #on écrit sur le client le contenu de la ligne qu'il nous envoie
-        #print CLIENT "Serveur: $_\n";
+    #On envoie la page d'erreur
+    while (<ERROR>) {
+        print CLIENT;
     }
-    #print CLIENT "Serveur: $_\n";
 
-
-    #On ferme la socket CLIENT
-    close(CLIENT);
-    print "Client déconnecté\n";
-
+    #On ferme le handler
+    close(ERROR);
 }
 
-#On ferme la socket SERVER
-close(SERVER);
+sub envoyerFichier {
 
-print "Fermeture du serveur Comanche\n";
+    #On récupere le chemin du fichier
+    my $arg = "@_";
+
+    my @splitLine = split(/\s+/, "$arg");
+
+    my $fichier = "$splitLine[0]";
+    my $type = "$splitLine[1]";
+
+    #On ouvre le handler sur le fichier
+    open(ENVOI, "$fichier");
+
+    #On calcule la taille du fichier
+    my $taille = -s "$fichier";
+
+    #On envoie l'entete de la réponse
+    head_reponse(200,$type,$taille);
+
+    #On envoie le fichier
+    while (<ENVOI>) {
+        print CLIENT;
+    }
+
+    #On ferme le handler
+    close(ENVOI);
+}
+
+sub ecrireLog {
+
+    #On ouvre le fichier de log
+    open(LOG,">>$logfile");
+
+    #On change le séparateur du tableau
+    $, = ";";
+
+    #On écrit les parametres 
+    print LOG "@_,\n";
+
+    #On ferme le fichier le Log
+    close(LOG);
+}
+
+#On vérifie que le programme soit lancé avec un parametre
+die("Un paramètre est obligatoire pour lancer le serveur (start, stop, status, reload)\n") if ($#ARGV < 0 || $#ARGV > 1);
+
+# Récupère la commande
+my $commande = $ARGV[0]; 
+
+# On vérifie la commande à lancer
+if ($commande eq "start") {
+
+    #On vérifie que le serveur n'est pas deja lancé
+    if(-e $pidfile){
+        die("Le serveur comanche est déjà démarré\n");
+    }else{
+    
+        start();
+    }
+
+} elsif ($commande eq "status") {
+   
+    status();
+
+} elsif ($commande eq "reload") {
+    
+    reload();
+
+} elsif ($commande eq "stop") {
+   
+   stop();
+
+} else {
+    die("Le paramètre n'est pas pris en charge. (start, stop, status, reload)\n");
+}
+
+sub stop {
+
+    #On vérifie si le serveur est déja arreter
+    if(! -e "$pidfile")
+    {
+        print "Le serveur comanche est déja arreté\n";
+        exit 0;
+    }
+
+    #On ouvre le fichier des pids
+    open(READ, "$pidfile");
+
+    #On récupere le pid enregistré
+    my $pid = <READ>;
+    
+    #On ferme le fichier
+    close(READ);
+
+    #On tue le processus
+    kill(15,"$pid");
+    
+    #On supprime le fichier avec le pid
+    unlink("$pidfile");
+
+    #On écrit le log de l'arret du serveur      
+    ecrireLog("stop", "local", "$port", "", "");
+
+    #On écrit le message dans le terminal
+    print "Arret du serveur comanche\n";
+
+    exit 0;
+}
+
+sub start {
+
+    #On fait le fork afin de créer le processus fils
+    my $pid = fork;
+
+    #pere
+    if ($pid != 0) {
+
+        #On ouvre le fichier
+        open (PID, ">", "$pidfile");
+
+        #On écrit le pid dans le fichier
+        print PID "$pid";
+
+        #On ferme le fichier
+        close PID;
+
+        #On retourne 0
+        exit 0;
+
+    #fils
+    }else{
+ 
+
+        #On lit , vérifie et applique les données du fichier de configuration
+        #Le serveur s'arrete en erreur si une erreur intervient
+        lireFichierConf();
+
+        #On crée une socket serveur
+        #SERVER => handle de la socket
+        #PF_INET => protocole ipv4
+        #SOCK_STREAM => type de communication (ici pour TCP)
+        #getprotobyname("tcp") => convertit le nom du protocole en numéro reconnaissable pour la fonction
+        socket(SERVER, PF_INET, SOCK_STREAM, getprotobyname("tcp")) or die("socket");
+
+
+        #On configure une option de la socket
+        #SERVER => handle de la socket
+        #SOL_SOCKET => niveau de configuration de l'option
+        #SO_REUSEADDR => permet de réutiliser l'addresse imédiatement après l'avoir libérée
+        #1 => active l'option SO_REUSEADDR
+        setsockopt(SERVER, SOL_SOCKET, SO_REUSEADDR, 1);
+
+
+        #On crée une addresse sur le port demandé 
+        #avec l'option INADDR_ANY pour écouter sur toutes les interfaces réseaux
+        my $addr = sockaddr_in("$port", INADDR_ANY);
+        print "Démarrage du serveur Comanche sur le port $port...\n";
+
+
+        #On attache la socket d'ecoute à l'addresse
+        bind(SERVER, $addr) or die("bind: $!");
+
+        #On écoute sur la socket SERVER
+        #SOMAXCONN => le nombre de connexions qui peuvent être en attente (ici la max possible)
+        listen(SERVER, SOMAXCONN) or die("listen: $!");
+
+        #établie une connexion entre la nouvelle socket CLIENT
+        #et la socket SERVER
+        print "En attente de client...\n";
+
+        #On ajoute un log de demarrage du serveur
+        ecrireLog(time(),"start","local",$port,"","");
+
+
+        while(accept(CLIENT, SERVER)){
+
+            print "Connexion du Client\n";
+            #crée un handle afin de lire ce que le client envoie
+            select(CLIENT);
+
+            # On active le mode d'écriture systématique des tampons (autoflush) sur le handle de la sortie standard 
+            $| = 1;
+
+            #Crée un handle afin d'ecrire sur la sortie standard
+            select(STDOUT);
+
+            my $lineNumber = 1;
+            #On lit ce qui passe par le handle CLIENT
+            while (<CLIENT>) {
+
+                #On supprime le \n de fin
+                chomp;
+
+                #Si c'est la premiere ligne reçue on vérifie que la méthode est bien GET / HTTP/1.1
+                if($lineNumber == 1){
+
+                    #On crée un booleen afin de vérifier que la ressource demandée est trouvée
+                    my $ressourceOk = 0;
+
+                    #On récupere la premiere ligne
+                    my $line = "$_";
+
+                    #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
+                    my @splitLine = split(/\s+/, "$line");
+
+                    #On récupere la méthode
+                    my $methode = "$splitLine[0]";
+
+                    #On récupere la ressource
+                    my $ressource = "$splitLine[1]";
+
+                    #On récupere la version
+                    my $version = "$splitLine[2]";
+
+                    #On vérifie que la méthode est bien GET sinon on envoie une erreur
+                    if($methode ne "GET"){
+
+                        #On crée l'erreur
+                        my $erreur = "405 Method Not Allowed";
+
+                        #On calcule la longueur de la chaine
+                        my $longueur = length("$erreur");
+
+                        #On envoie l'entete de la réponse
+                        head_reponse(405,'text/plain',$longueur);
+
+                        #On envoie l'erreur
+                        print CLIENT "$erreur";
+                    }
+
+                    #On vérifie que la version est bien 1.1 sinon on envoie une erreur
+                    if($version ne "HTTP/1.1"){
+
+                        #On crée l'erreur
+                        my $erreur = "505 HTTP Version Not Supported";
+
+                        #On calcule la longueur de la chaine
+                        my $longueur = length("$erreur");
+
+                        #On envoie l'entete de la réponse
+                        head_reponse(505,'text/plain',$longueur);
+
+                        #On envoie l'erreur
+                        print CLIENT "$erreur";
+                    }
+
+                    #On parcourt toutes les  projections de routes
+                    foreach my $regexp1Routes (keys(%hashRoutes)) {
+                       print "Clef=$regexp1Routes Valeur=$hashRoutes{$regexp1Routes}\n";
+
+                       #On vérifie si la ressource matche avec une regex
+                       if($ressource =~ $regexp1Routes){
+
+                            #On passe le boleen à vrai
+                            $ressourceOk = 1;
+
+                            #On récupere le chemin correspondant
+                            my $chemin = "$hashRoutes{$regexp1Routes}";
+                            
+                            #On retire le premier / de la ressource
+                            $ressource = substr("$ressource",1);
+
+                            #on remplace le \1 du chemin par la ressource
+                            $chemin = substr("$chemin",0,-2);
+
+                            my $cheminRessource = $chemin.$ressource;
+
+                            #print "s/$regexp1Routes/$hashRoutes{$regexp1Routes}/\n";
+
+                            #On récupere l'extension
+                            my $extension = substr("$cheminRessource",-4);
+
+                            #Si la ressource est un dossier
+                            if(-d $cheminRessource){
+                                my $cheminIndex = $cheminRessource."/".$index;
+                                if(-e $cheminIndex){
+                                    envoyerFichier("$cheminIndex","text/html");
+                                }else{
+
+                                }
+                            }
+
+                            #On vérifie l'extension
+                            if($extension eq "html"){
+                                envoyerFichier("$cheminRessource","text/html");
+                                last;
+                            }
+                            if($extension eq ".png"){
+                                envoyerFichier("$cheminRessource","image/png");
+                                last;
+                            }
+                            if($extension eq ".txt"){
+                                envoyerFichier("$cheminRessource","text/plain");
+                                last;
+                            }
+                            
+                            #Si la ressource ne correspond à aucun type on envoi une erreur
+
+                            #On crée l'erreur
+                            my $erreur = "415 Unsupported Media Type";
+
+                            #On calcule la longueur de la chaine
+                            my $longueur = length("$erreur");
+
+                            #On envoie l'entete de la réponse
+                            head_reponse(415,'text/plain',$longueur);
+
+                            #On envoie l'erreur
+                            print CLIENT "$erreur";
+
+                            #On sort de la boucle
+                            last;
+                       }
+                    }
+
+                    #On parcourt toutes les  projections d'exec
+                    foreach my $regexp1Exec (keys(%hashExec)) {
+                       print "Clef=$regexp1Exec Valeur=$hashExec{$regexp1Exec}\n";
+
+                       #On vérifie si la ressource matche avec la regex
+                       if($ressource =~ $regexp1Exec){
+
+                            #On passe le boleen à vrai
+                            $ressourceOk = 1;
+
+                            #On remplace la ressource par le match de la regex
+                            $ressource =~ s/$regexp1Exec/$hashExec{$regexp1Exec}/;
+
+                            #On sort de la boucle
+                            last;
+                       }
+                    }
+
+                    if(!$ressourceOk){
+
+                        envoyerPageErreur();
+                    }
+                }
+
+                $lineNumber++;
+                #Le contenu de la ligne lue est dans la variable $_ et écrit sur la sortie standard
+                print "Client: $_\n";
+
+                #on écrit sur le client le contenu de la ligne qu'il nous envoie
+                #print CLIENT "Serveur: $_\n";
+            }
+            #print CLIENT "Serveur: $_\n";
+
+
+            #On ferme la socket CLIENT
+            close(CLIENT);
+            print "Client déconnecté\n";
+
+        }
+
+        #On ferme la socket SERVER
+        close(SERVER);
+}
+
+}
