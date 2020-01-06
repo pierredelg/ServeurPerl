@@ -41,6 +41,13 @@ my %hashExec;
 
 #----------------------------------------------------------------------------#
 
+
+
+
+
+#############################   CONFIGURATION   #############################
+
+
 #méthode qui lit le fichier conf
 sub lireFichierConf{
     
@@ -55,6 +62,54 @@ sub lireFichierConf{
 
         #On vérifie le contenu de chaque lignes
     	verifierLigneConf($line);
+    }
+}
+
+#méthode qui verifie chaque ligne du fichier de configuration
+sub verifierLigneConf{
+
+    #On récupere la ligne envoyée en parametre
+    my $line = "@_";
+   
+    #On remplace les lignes commençant par un # par une chaine vide
+    $line =~ s/(?m)^#.*$//;
+
+    #On conserve ce qui se trouve entre les caractères d'espacements
+    $line =~ s/\s*(.*)\s*/$1/;
+
+    #On supprime la partie suivant le # de la ligne
+    $line =~ s/(.*)#(.*)/$1/;
+    
+    #On vérifie que la ligne n'est pas vide
+    if($line ne ""){
+
+        #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
+        my @splitLine = split(/\s+/, "$line");
+
+        #On récupere le premier mot du tableau
+        my $ordre = "$splitLine[0]";
+
+        #On vérifie la nature de l'ordre
+        if($ordre eq "set") {
+
+            #On vérifie le contenu de la ligne commençant par set
+            verifierSet("$line");
+        
+        }elsif($ordre eq "route") {
+
+            #On vérifie le contenu de la ligne commençant par route
+            verifierRoute("$line");
+        
+        }elsif($ordre eq "exec") {
+
+            #On vérifie le contenu de la ligne commençant par exec
+            verifierExec("$line");   
+ 
+        }else {
+
+           #Si l'ordre n'est pas connu on affiche une erreur
+          die "$ordre est un ordre non connu !\n";
+        }
     }
 }
 
@@ -182,54 +237,6 @@ sub verifierExec{
     }
 }
 
-#méthode qui verifie chaque ligne du fichier de configuration
-sub verifierLigneConf{
-
-    #On récupere la ligne envoyée en parametre
-    my $line = "@_";
-   
-    #On remplace les lignes commençant par un # par une chaine vide
-    $line =~ s/(?m)^#.*$//;
-
-    #On conserve ce qui se trouve entre les caractères d'espacements
-    $line =~ s/\s*(.*)\s*/$1/;
-
-    #On supprime la partie suivant le # de la ligne
-    $line =~ s/(.*)#(.*)/$1/;
-    
-    #On vérifie que la ligne n'est pas vide
-    if($line ne ""){
-
-        #On répartit chaque élément de la ligne séparés par des espaces dans un tableau
-    	my @splitLine = split(/\s+/, "$line");
-
-        #On récupere le premier mot du tableau
-    	my $ordre = "$splitLine[0]";
-
-        #On vérifie la nature de l'ordre
-    	if($ordre eq "set") {
-
-            #On vérifie le contenu de la ligne commençant par set
-    	    verifierSet("$line");
-	    
-    	}elsif($ordre eq "route") {
-
-	        #On vérifie le contenu de la ligne commençant par route
-    	    verifierRoute("$line");
-	    
-    	}elsif($ordre eq "exec") {
-
-	        #On vérifie le contenu de la ligne commençant par exec
-    	    verifierExec("$line");   
- 
-    	}else {
-
-	       #Si l'ordre n'est pas connu on affiche une erreur
-    	  die "$ordre est un ordre non connu !\n";
-    	}
-    }
-}
-
 #méthode permettant de construire l'entête de la réponse
 sub head_reponse{
 
@@ -252,6 +259,7 @@ sub head_reponse{
     print CLIENT "\r\n";
 }
 
+#méthode permettant de renvoyer une page d'erreur
 sub envoyerPageErreur {
 
     #On ouvre le handler sur le fichier d'erreur
@@ -272,6 +280,7 @@ sub envoyerPageErreur {
     close(ERROR);
 }
 
+#méthode permettant de renvoyer un fichier
 sub envoyerFichier {
 
     #On récupere le chemin du fichier
@@ -300,6 +309,7 @@ sub envoyerFichier {
     close(ENVOI);
 }
 
+#méthode permettant d'écrire dans le fichier de log
 sub ecrireLog {
 
     #On ouvre le fichier de log
@@ -309,45 +319,56 @@ sub ecrireLog {
     $, = ";";
 
     #On écrit les parametres 
-    print LOG "@_,\n";
+    print LOG @_,"\n";
 
     #On ferme le fichier le Log
     close(LOG);
 }
 
-#On vérifie que le programme soit lancé avec un parametre
-die("Un paramètre est obligatoire pour lancer le serveur (start, stop, status, reload)\n") if ($#ARGV < 0 || $#ARGV > 1);
+#méthode permettant de lister le contenu d'un dossier en liste html
+sub listeHTMLDossier {
 
-# Récupère la commande
-my $commande = $ARGV[0]; 
-
-# On vérifie la commande à lancer
-if ($commande eq "start") {
-
-    #On vérifie que le serveur n'est pas deja lancé
-    if(-e $pidfile){
-        die("Le serveur comanche est déjà démarré\n");
-    }else{
+    #On récupere le nom du dossier
+    my $dir = shift;
     
-        start();
+    #On prépare le début du fichier html
+    my $reponse =  "<!DOCTYPE html>
+                <html lang=\"fr\">
+                    <head>
+                        <meta charset=\"utf-8\">
+                    </head>
+                    <body>
+                        <h1>$dir</h1>
+                        <ul>";
+
+    #On ouvre le dossier
+    opendir(REP, $dir);
+
+    #On parcourt le dossier
+    for $fichier (sort readdir(REP)) {
+
+        my $cheminFichier = "$dir\/$fichier";
+
+        #On ajoute la ligne du fichier à la liste
+        $reponse .= "<li><a href='$cheminFichier'>$fichier</a></li>";
     }
-
-} elsif ($commande eq "status") {
-   
-    status();
-
-} elsif ($commande eq "reload") {
     
-    reload();
+    #On affiche la fin du fichier html
+    $reponse .= "       </ul>
+                    </body>
+                </html>";
 
-} elsif ($commande eq "stop") {
-   
-   stop();
+    #On envoi l'entête de la réponse
+    head_reponse(200,"text/html",length("$reponse"));
 
-} else {
-    die("Le paramètre n'est pas pris en charge. (start, stop, status, reload)\n");
+    #On affiche la réponse
+    print (CLIENT,"$reponse");
+
+    #On écrit le log 
+    ecrireLog("get-s","200 OK");
 }
 
+#méthode permettant d'arreter le serveur
 sub stop {
 
     #On vérifie si le serveur est déja arreter
@@ -362,6 +383,7 @@ sub stop {
 
     #On récupere le pid enregistré
     my $pid = <READ>;
+    my $portPid = <READ>;
     
     #On ferme le fichier
     close(READ);
@@ -373,7 +395,7 @@ sub stop {
     unlink("$pidfile");
 
     #On écrit le log de l'arret du serveur      
-    ecrireLog("stop", "local", "$port", "", "");
+    ecrireLog("stop", "local", "$portPid", "", "");
 
     #On écrit le message dans le terminal
     print "Arret du serveur comanche\n";
@@ -381,6 +403,7 @@ sub stop {
     exit 0;
 }
 
+#méthode permettant de demarrer le serveur
 sub start {
 
     #On fait le fork afin de créer le processus fils
@@ -389,11 +412,14 @@ sub start {
     #pere
     if ($pid != 0) {
 
+        lireFichierConf();
+
         #On ouvre le fichier
         open (PID, ">", "$pidfile");
 
         #On écrit le pid dans le fichier
         print PID "$pid";
+        print PID "$port";
 
         #On ferme le fichier
         close PID;
@@ -629,6 +655,36 @@ sub start {
 
         #On ferme la socket SERVER
         close(SERVER);
+    }
 }
 
+############################   DEBUT DU PROGRAMME   ############################
+
+#On vérifie que le programme soit lancé avec un parametre
+die("Un paramètre est obligatoire pour lancer le serveur (start, stop, status)\n") if ($#ARGV < 0 || $#ARGV > 1);
+
+# Récupère la commande
+my $commande = $ARGV[0]; 
+
+# On vérifie la commande à lancer
+if ($commande eq "start") {
+
+    #On vérifie que le serveur n'est pas deja lancé
+    if(-e $pidfile){
+        die("Le serveur comanche est déjà démarré\n");
+    }else{
+    
+        start();
+    }
+
+} elsif ($commande eq "status") {
+   
+    status();
+
+} elsif ($commande eq "stop") {
+   
+    stop();
+
+} else {
+    die("Le paramètre n'est pas pris en charge. (start, stop, status)\n");
 }
