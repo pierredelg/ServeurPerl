@@ -500,6 +500,8 @@ sub start {
 
                 #On supprime le \n de fin
                 chomp($line);
+                #On supprime le \r de fin
+                chop($line);
 
                 #Si c'est la premiere ligne reçue on vérifie que la méthode est bien GET / HTTP/1.1
                 if($lineNumber == 1){
@@ -573,12 +575,36 @@ sub start {
                             #on remplace le \1 du chemin par la ressource
                             $chemin = substr("$chemin",0,-2);
 
+                            #On construit la projection
                             my $cheminRessource = "$chemin"."$ressource";
 
                             print "chemin ressource = $cheminRessource\n";
 
                             #On récupere l'extension
                             my $extension = substr("$cheminRessource",-4);
+
+                            #Si on essaye d'acceder au dossier parent
+                            #On interdit l'accès
+                            if($ressource eq "../"){
+
+                                #On crée l'erreur
+                                my $erreur = "403 Forbidden";
+
+                                #On calcule la longueur de la chaine
+                                my $longueur = length("$erreur");
+
+                                #On envoie l'entete de la réponse
+                                head_reponse(403,'text/plain',"$longueur");
+
+                                #On envoie l'erreur
+                                print CLIENT "$erreur";
+
+                                #On écrit dans le fichier de log
+                                ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",403);
+
+                                #On sort de la boucle
+                                last;
+                            }
 
                             #Si la ressource est un dossier
                             if(-d $cheminRessource){
@@ -596,18 +622,53 @@ sub start {
 
                             #On vérifie l'extension
                             if($extension eq "html"){
-                                envoyerFichier("$cheminRessource","text/html");
-                                ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+
+                                #On vérifie que la ressource demandée existe
+                                if(-e $cheminRessource){
+
+                                    envoyerFichier("$cheminRessource","text/html");
+
+                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                                }else{
+                                    
+                                    envoyerPageErreur();
+
+                                    ecrireLog(time(),"get-s","$ipClient","$line","",404);
+                                }
                                 last;
                             }
                             if($extension eq ".png"){
-                                envoyerFichier("$cheminRessource","image/png");
-                                ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+
+                                #On vérifie que la ressource demandée existe
+                                if(-e $cheminRessource){
+
+                                    envoyerFichier("$cheminRessource","image/png");
+
+                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                                    
+                                }else{
+                                    
+                                    envoyerPageErreur();
+
+                                    ecrireLog(time(),"get-s","$ipClient","$line","",404);
+                                }
                                 last;
                             }
                             if($extension eq ".txt"){
-                                envoyerFichier("$cheminRessource","text/plain");
-                                ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+
+                                #On vérifie que la ressource demandée existe
+                                if(-e $cheminRessource){
+
+                                    envoyerFichier("$cheminRessource","text/plain");
+
+                                    ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
+                                    
+                                }else{
+
+                                    envoyerPageErreur();
+
+                                    ecrireLog(time(),"get-s","$ipClient","$line","",404);
+                                }
                                 last;
                             }
                             
