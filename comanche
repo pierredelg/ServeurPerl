@@ -345,7 +345,12 @@ sub listeHTMLDossier {
 
     #On récupere le nom du dossier
     my $dir = shift;
-    
+
+	my @values = split('/',$dir);
+
+	my $a = $values[@values-1];
+	#print "$a\n";
+
     #On prépare le début du fichier html
     my $reponse =  "<!DOCTYPE html>
                 <html lang=\"fr\">
@@ -365,7 +370,7 @@ sub listeHTMLDossier {
         my $cheminFichier = "$dir\/$fichier";
 
         #On ajoute la ligne du fichier à la liste
-        $reponse .= "<li><a href='$cheminFichier'>$fichier</a></li>";
+        $reponse .= "<li><a href='$fichier'>$fichier</a></li>";
     }
     
     #On affiche la fin du fichier html
