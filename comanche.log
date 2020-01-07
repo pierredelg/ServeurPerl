@@ -1,4 +1,4 @@
-1578400211;stop;local;8080;;;
+578400211;stop;local;8080;;;
 1578400231;stop;local;8080;;;
 1578400249;stop;local;8080;;;
 1578403521;stop;local;8080;;;
@@ -28,6 +28,7 @@
 1578404693;get-s;127.0.0.1;GET /pigeon.png HTTP/1.1;/home/infoetu/lahoussl/LPDA2I/serveurwebperl/pigeon.png;200;
 1578404700;get-s;127.0.0.1;GET /pigeon.png HTTP/1.1;/home/infoetu/lahoussl/LPDA2I/serveurwebperl/pigeon.png;200;
 1578404722;get-s;127.0.0.1;GET /test HTTP/1.1;/home/infoetu/lahoussl/LPDA2I/serveurwebperl/test;200;
+<<<<<<< HEAD
 1578404928;get-s;127.0.0.1;GET /test HTTP/1.1;/home/infoetu/lahoussl/LPDA2I/serveurwebperl/test;200;
 1578404931;get-s;127.0.0.1;GET /test HTTP/1.1;/home/infoetu/lahoussl/LPDA2I/serveurwebperl/test;200;
 1578404941;get-s;127.0.0.1;GET /pigeon.png HTTP/1.1;/home/infoetu/lahoussl/LPDA2I/serveurwebperl/pigeon.png;200;
