@@ -314,7 +314,6 @@ sub envoyerFichier {
 
     #On envoie l'entete de la réponse
     head_reponse(200,"$type","$taille");
-    print "200 $type $taille";
 
     #On envoie le fichier
     while (<ENVOI>) {
@@ -323,6 +322,7 @@ sub envoyerFichier {
 
     #On ferme le handler
     close(ENVOI);
+    exit 0;
 }
 
 #méthode permettant d'écrire dans le fichier de log
@@ -662,7 +662,7 @@ sub start {
                                         last;
                                     }
                                     if($extension eq ".png"){
-					printf "on est au niveau de png";
+			       
                                         #On vérifie que la ressource demandée existe
                                         if(-e $cheminRessource){
 					    
