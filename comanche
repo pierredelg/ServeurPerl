@@ -314,6 +314,7 @@ sub envoyerFichier {
 
     #On envoie l'entete de la réponse
     head_reponse(200,"$type","$taille");
+    print "200 $type $taille";
 
     #On envoie le fichier
     while (<ENVOI>) {
@@ -656,10 +657,10 @@ sub start {
                                         last;
                                     }
                                     if($extension eq ".png"){
-
+					printf "on est au niveau de png";
                                         #On vérifie que la ressource demandée existe
                                         if(-e $cheminRessource){
-
+					    
                                             envoyerFichier("$cheminRessource","image/png");
 
                                             ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
