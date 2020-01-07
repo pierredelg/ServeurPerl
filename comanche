@@ -627,6 +627,22 @@ sub start {
 
                                     #On construit la projection
                                     my $cheminRessource = "$chemin"."$ressource";
+									
+									#Si le fichier n'a pas le droit de lecture
+									if(! -r $cheminRessource){
+  										#On crée l'erreur
+				                        my $erreur = "403 Forbidden";
+
+				                        #On calcule la longueur de la chaine
+				                        my $longueur = length("$erreur");
+										#On envoie la réponse
+										head_reponse(403,'text/plain',"$longueur");
+
+                                		ecrireLog(time(),"get-s","$ipClient","$line","",403);
+
+                                		#On envoie l'erreur
+                                		print CLIENT "$erreur";
+									}
 
                                     #On récupere l'extension
                                     my $extension = substr("$cheminRessource",-4);
