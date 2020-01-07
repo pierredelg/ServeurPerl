@@ -385,6 +385,7 @@ sub listeHTMLDossier {
 
     #On affiche la réponse
     print CLIENT "$reponse";
+    exit 0;
 
 }
 
