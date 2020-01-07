@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use Socket;
 use POSIX ":sys_wait_h";
+use POSIX qw(mkfifo);
 
 
 #----------------------------------------------------------------------------#
@@ -44,6 +45,10 @@ my %hashExec;
 
 #Tableau contenant les processus fils
 my @processusFils;
+
+my $nombreRequetesRecues;
+
+my $nombreRequetesTraitees;
 
 
 $SIG{CHLD} = \&supressionFils;
@@ -287,7 +292,7 @@ sub head_reponse{
 sub envoyerPageErreur {
 
     #On ouvre le handler sur le fichier d'erreur
-    open(ERROR, "$error");
+    open(ERROR, "$error") or die "Impossible d'ouvrir le fichier $error: $!\n";
 
     #On calcule la taille du fichier
     my $taille = -s "$error";
@@ -337,8 +342,13 @@ sub envoyerFichier {
 #méthode permettant d'écrire dans le fichier de log
 sub ecrireLog {
 
+    if(! -e "$logfile"){
+        open(LOG,">","$logfile") or die "Impossible d'ouvrir le fichier $logfile: $!\n";
+        close(LOG);
+    }
+
     #On ouvre le fichier de log
-    open(LOG,">>$logfile");
+    open(LOG,">>","$logfile");
 
     #On change le séparateur du tableau
     $, = ";";
@@ -423,8 +433,9 @@ sub stop {
     #On tue le processus
     kill(15,"$pid");
     
-    #On supprime le fichier avec le pid
+    #On supprime le fichier avec le pid et le fichier stat
     unlink("$pidfile");
+    unlink(".stat");
 
     #On écrit le log de l'arret du serveur      
     ecrireLog(time(),"stop", "local", "$portPid", "", "");
@@ -437,19 +448,46 @@ sub stop {
 
 #méthode permettant d'envoyer le status du serveur
 sub status{
+
     #On ouvre le fichier des pids
-    open(READ, "$pidfile");
+    open(READPID, "$pidfile");
 
     #On récupere le pid enregistré
-    my $pid = <READ>;
+    my $pid = <READPID>;
 
+    #On supprime le caractere de fin de ligne
     chomp($pid);
 
-    close(READ);
+    #On ferme le fichier   
+    close(READPID);
 
     print "PID principal = $pid\n";
-    print "Nombre de requetes recues =    ;   Nombre de requetes traitées =     \n";
 
+    if(-e ".stat"){
+
+        #On ouvre le fichier des stats
+        open(READSTAT, ".stat");
+
+        #On récupere les stats
+        $nombreRequetesRecues = <READSTAT>;
+        print "recues = $nombreRequetesRecues\n";
+        chomp($nombreRequetesRecues);
+
+        $nombreRequetesTraitees = <READSTAT>;
+        print "traitées = $nombreRequetesTraitees\n";
+        chomp($nombreRequetesTraitees);
+
+        #On ferme le fichier   
+        close(READSTAT);
+    }else{
+        $nombreRequetesRecues = 0;
+        $nombreRequetesTraitees = 0;
+    }
+
+    #On affiche les nombres de requetes
+    print "Nombre de requetes recues = $nombreRequetesRecues    Nombre de requetes traitées = $nombreRequetesTraitees\n";
+
+    #On compte le nombre d'ouvriers
     my $nombreOuvriers = scalar(@processusFils);
 
     print "Nombre d'ouvriers actifs = $nombreOuvriers";
@@ -527,10 +565,35 @@ sub start {
 
 
         while(accept(CLIENT, SERVER)|| do {
-             # try again if accept() returned because got a signal
+             #On recommence si le accept recoit un signal
              next if $!{EINTR};
              die "accept: $!";
             }){
+
+            if(-e ".stat"){
+
+                open(READSTAT, ".stat");
+
+                $nombreRequetesRecues = <READSTAT>;
+                chomp($nombreRequetesRecues);
+
+                $nombreRequetesTraitees = <READSTAT>;
+                chomp($nombreRequetesTraitees);
+
+                $nombreRequetesRecues++;
+                close(READSTAT);
+
+                open(READSTAT,">",".stat");
+                print READSTAT "$nombreRequetesRecues\n";
+                print READSTAT "$nombreRequetesTraitees\n";
+                close(READSTAT);
+                
+            }else{
+                open(READSTAT,">",".stat");
+                print READSTAT "1\n";
+                print READSTAT "0\n";
+                close(READSTAT);
+            }
 
             select(CLIENT);
             
@@ -576,6 +639,22 @@ sub start {
                 push(@processusFils, $pidOuvrier);
 
                 if($pidOuvrier == 0){
+
+                    open(READSTAT, ".stat");
+
+                    $nombreRequetesRecues = <READSTAT>;
+                    chomp($nombreRequetesRecues);
+
+                    $nombreRequetesTraitees = <READSTAT>;
+                    chomp($nombreRequetesTraitees);
+
+                    $nombreRequetesTraitees++;
+                    close(READSTAT);
+
+                    open(READSTAT,">",".stat");
+                    print READSTAT "$nombreRequetesRecues\n";
+                    print READSTAT "$nombreRequetesTraitees\n";
+                    close(READSTAT);
 
                     my $lineNumber = 1;
 
@@ -624,6 +703,8 @@ sub start {
 
                                 #On envoie l'erreur
                                 print CLIENT "$erreur";
+
+                                last;
                             }
 
                             #On vérifie que la version est bien 1.1 sinon on envoie une erreur
@@ -642,6 +723,8 @@ sub start {
 
                                 #On envoie l'erreur
                                 print CLIENT "$erreur";
+
+                                last;
                             }
 
                             #On parcourt toutes les  projections de routes
@@ -667,18 +750,22 @@ sub start {
 									
 									#Si le fichier n'a pas le droit de lecture
 									if(! -r $cheminRessource){
+
   										#On crée l'erreur
 				                        my $erreur = "403 Forbidden";
 
 				                        #On calcule la longueur de la chaine
 				                        my $longueur = length("$erreur");
+
 										#On envoie la réponse
 										head_reponse(403,'text/plain',"$longueur");
 
-                                		ecrireLog(time(),"get-s","$ipClient","$line","",403);
+                                		ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",403);
 
                                 		#On envoie l'erreur
                                 		print CLIENT "$erreur";
+
+                                        last;
 									}
 
                                     #On récupere l'extension
@@ -795,14 +882,17 @@ sub start {
 
                                 ecrireLog(time(),"get-s","$ipClient","$line","",404);
 
+                                last;
                             }
                         }
 
                         $lineNumber++;
 
                     }
+
                     #On ferme la socket CLIENT
                     close(CLIENT);
+
                     exit 0;
                 }
                 
@@ -813,6 +903,10 @@ sub start {
 
         #On ferme la socket SERVER
         close(SERVER);
+        
+        #On supprime le fichier
+        unlink (".tube");
+
     }
 }
 
