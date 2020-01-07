@@ -331,6 +331,7 @@ sub envoyerFichier {
 
     #On ferme le handler
     close(ENVOI);
+    exit 0;
 }
 
 #méthode permettant d'écrire dans le fichier de log
@@ -354,7 +355,12 @@ sub listeHTMLDossier {
 
     #On récupere le nom du dossier
     my $dir = shift;
-    
+
+	my @values = split('/',$dir);
+
+	my $a = $values[@values-1];
+	#print "$a\n";
+
     #On prépare le début du fichier html
     my $reponse =  "<!DOCTYPE html>
                 <html lang=\"fr\">
@@ -374,7 +380,7 @@ sub listeHTMLDossier {
         my $cheminFichier = "$dir\/$fichier";
 
         #On ajoute la ligne du fichier à la liste
-        $reponse .= "<li><a href='$cheminFichier'>$fichier</a></li>";
+        $reponse .= "<li><a href='$fichier'>$fichier</a></li>";
     }
     
     #On affiche la fin du fichier html
@@ -388,6 +394,7 @@ sub listeHTMLDossier {
 
     #On affiche la réponse
     print CLIENT "$reponse";
+    exit 0;
 
 }
 
@@ -657,6 +664,22 @@ sub start {
 
                                     #On construit la projection
                                     my $cheminRessource = "$chemin"."$ressource";
+									
+									#Si le fichier n'a pas le droit de lecture
+									if(! -r $cheminRessource){
+  										#On crée l'erreur
+				                        my $erreur = "403 Forbidden";
+
+				                        #On calcule la longueur de la chaine
+				                        my $longueur = length("$erreur");
+										#On envoie la réponse
+										head_reponse(403,'text/plain',"$longueur");
+
+                                		ecrireLog(time(),"get-s","$ipClient","$line","",403);
+
+                                		#On envoie l'erreur
+                                		print CLIENT "$erreur";
+									}
 
                                     #On récupere l'extension
                                     my $extension = substr("$cheminRessource",-4);
@@ -693,10 +716,10 @@ sub start {
                                         last;
                                     }
                                     if($extension eq ".png"){
-
+			       
                                         #On vérifie que la ressource demandée existe
                                         if(-e $cheminRessource){
-
+					    
                                             envoyerFichier("$cheminRessource","image/png");
 
                                             ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
