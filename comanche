@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 use Socket;
+use POSIX ":sys_wait_h";
 
 
 #----------------------------------------------------------------------------#
@@ -44,20 +45,32 @@ my %hashExec;
 #Tableau contenant les processus fils
 my @processusFils;
 
+my $nombreRequetesRecues;
 
-#$SIG{CHLD} = sub {
-#
-#    my $pidChild = wait();
-#    my @nouv;
-#
-#    for( my $i = 0; $i < scalar(@processusFils); $i++){
-#         if($processusFils[$i] != $pidChild){
-#            push(@nouv, $processusFils[$i]);
-#         }
-#    }
-#    
-#    @processusFils = @nouv;
-#};
+my $nombreRequetesTraitees;
+
+
+$SIG{CHLD} = \&supressionFils;
+
+sub supressionFils {
+
+    local $!;
+
+    #On récupere le pid du processus arrété
+    my $pidChild;
+    my @nouv;
+
+    while (($pidChild = waitpid(-1, WNOHANG)) > 0 && WIFEXITED($?)){ 
+        
+        #On parcourt la liste des processus afin de supprimer le processus réceptionné
+        for( my $i = 0; $i < scalar(@processusFils); $i++){
+             if($processusFils[$i] != $pidChild){
+                push(@nouv, $processusFils[$i]);
+             }
+        }
+    }
+    @processusFils = @nouv;
+};
 
 
 #############################   CONFIGURATION   #############################
@@ -163,10 +176,10 @@ sub verifierSet{
 
         #On récupere le chemin de la page d'erreur 
         my $newError = "$tab[2]";
-	if(! -e $newError){
-	    die "le fichier $newError n\'existe pas\n
-arret de comanche\n";
-	}
+
+    	if(! -e $newError){
+    	    die "le fichier $newError n\'existe pas.\nArret du serveur comanche.\n";
+    	}
 
         #On affecte le nouveau chemin de la page d'erreur
         $error = $newError;
@@ -282,7 +295,7 @@ sub head_reponse{
 sub envoyerPageErreur {
 
     #On ouvre le handler sur le fichier d'erreur
-    open(ERROR, "$error");
+    open(ERROR, "$error") or die "Impossible d'ouvrir le fichier $error: $!\n";
 
     #On calcule la taille du fichier
     my $taille = -s "$error";
@@ -333,7 +346,7 @@ sub envoyerFichier {
 sub ecrireLog {
 
     #On ouvre le fichier de log
-    open(LOG,">>$logfile");
+    open(LOG,">>$logfile") or die "Impossible d'ouvrir le fichier $logfile: $!\n";
 
     #On change le séparateur du tableau
     $, = ";";
@@ -421,6 +434,8 @@ sub stop {
     #On supprime le fichier avec le pid
     unlink("$pidfile");
 
+    unlink(".stat");
+
     #On écrit le log de l'arret du serveur      
     ecrireLog(time(),"stop", "local", "$portPid", "", "");
 
@@ -432,6 +447,48 @@ sub stop {
 
 #méthode permettant d'envoyer le status du serveur
 sub status{
+
+    open(READPID, "$pidfile");
+
+    my $pid = <READPID>;
+
+    #On supprime le caractere de fin de ligne
+    chomp($pid);
+
+    #On ferme le fichier   
+    close(READPID);
+
+    print "PID principal = $pid\n";
+
+    my $nombreRequetesRecues = "";
+    my $nombreRequetesTraitees = "";
+
+    if(-e ".stat"){
+
+        #On ouvre le fichier des stats
+        open(READSTAT, ".stat");
+
+        #On récupere les stats
+        $nombreRequetesRecues = <READSTAT>;
+        chomp($nombreRequetesRecues);
+
+        $nombreRequetesTraitees = <READSTAT>;
+        chomp($nombreRequetesTraitees);
+
+        #On ferme le fichier   
+        close(READSTAT);
+    }else{
+        $nombreRequetesRecues = 0;
+        $nombreRequetesTraitees = 0;
+    }
+
+    #On affiche les nombres de requetes
+    print "Nombre de requetes recues = $nombreRequetesRecues    Nombre de requetes traitées = $nombreRequetesTraitees\n";
+
+    #On compte le nombre d'ouvriers
+    my $nombreOuvriers = scalar(@processusFils);
+
+    print "Nombre d'ouvriers actifs = $nombreOuvriers\n";
 
 }
 
@@ -499,7 +556,38 @@ sub start {
         ecrireLog(time(),"start","local","$port","","");
 
 
-        while(accept(CLIENT, SERVER)){
+         while(accept(CLIENT, SERVER) || do {
+             # try again if accept() returned because got a signal
+             next if $!{EINTR};
+             die "accept: $!";
+            }){
+
+             if(-e ".stat"){
+
+                open(READSTAT, ".stat");
+
+                my $nombreRequetesRecues = <READSTAT>;
+                chomp($nombreRequetesRecues);
+
+                my $nombreRequetesTraitees = <READSTAT>;
+                chomp($nombreRequetesTraitees);
+
+                $nombreRequetesRecues++;
+                close(READSTAT);
+
+                open(READSTAT,">",".stat");
+                print READSTAT "$nombreRequetesRecues\n";
+                print READSTAT "$nombreRequetesTraitees\n";
+                close(READSTAT);
+                
+            }else{
+                open(READSTAT,">",".stat");
+                print READSTAT "1\n";
+                print READSTAT "0\n";
+                close(READSTAT);
+            }
+
+
 
             select(CLIENT);
             
@@ -542,8 +630,27 @@ sub start {
 
                 #On crée un processus fils ouvrier afin de traiter la requete
                 my $pidOuvrier = fork();
+                
+                push(@processusFils, $pidOuvrier);
 
                 if($pidOuvrier == 0){
+
+                     open(READSTAT, ".stat");
+
+                    my $nombreRequetesRecues = <READSTAT>;
+                    chomp($nombreRequetesRecues);
+
+                    my $nombreRequetesTraitees = <READSTAT>;
+                    chomp($nombreRequetesTraitees);
+
+                    $nombreRequetesTraitees++;
+                    close(READSTAT);
+
+                    open(READSTAT,">",".stat");
+                    print READSTAT "$nombreRequetesRecues\n";
+                    print READSTAT "$nombreRequetesTraitees\n";
+                    close(READSTAT);
+
 
                     my $lineNumber = 1;
                     #On lit ce qui passe par le handle CLIENT
@@ -635,6 +742,31 @@ sub start {
                                     #On récupere l'extension
                                     my $extension = substr("$cheminRessource",-4);
 
+                                    if(! -e $cheminRessource){
+                                        envoyerPageErreur();
+                                        ecrireLog(time(),"get-s","$ipClient","$line","",404);
+
+                                    }
+
+                                    #Si le fichier n'a pas le droit de lecture
+                                    if(! -r $cheminRessource ){
+                                        #On crée l'erreur
+                                        my $erreur = "403 Forbidden";
+
+                                        #On calcule la longueur de la chaine
+                                        my $longueur = length("$erreur");
+                                        #On envoie la réponse
+                                        head_reponse(403,'text/plain',"$longueur");
+
+                                        ecrireLog(time(),"get-s","$ipClient","$line","",403);
+
+                                        #On envoie l'erreur
+                                        print CLIENT "$erreur";
+
+                                        last;
+                                    }
+
+
                                     #Si la ressource est un dossier
                                     if(-d $cheminRessource){
                                         my $cheminIndex = "$cheminRessource"."/"."$index";
@@ -658,11 +790,6 @@ sub start {
                                             envoyerFichier("$cheminRessource","text/html");
 
                                             ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
-                                        }else{
-                                            
-                                            envoyerPageErreur();
-
-                                            ecrireLog(time(),"get-s","$ipClient","$line","",404);
                                         }
                                         last;
                                     }
@@ -675,11 +802,6 @@ sub start {
 
                                             ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
                                             
-                                        }else{
-                                            
-                                            envoyerPageErreur();
-
-                                            ecrireLog(time(),"get-s","$ipClient","$line","",404);
                                         }
                                         last;
                                     }
@@ -692,11 +814,6 @@ sub start {
 
                                             ecrireLog(time(),"get-s","$ipClient","$line","$cheminRessource",200);
                                             
-                                        }else{
-
-                                            envoyerPageErreur();
-
-                                            ecrireLog(time(),"get-s","$ipClient","$line","",404);
                                         }
                                         last;
                                     }
@@ -757,7 +874,6 @@ sub start {
 
                     exit 0;
                 }
-                push(@processusFils, $pidOuvrier);
             }
             #On ferme la socket CLIENT
             close(CLIENT);
